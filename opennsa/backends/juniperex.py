@@ -203,10 +203,10 @@ class SSHChannel(ssh.SSHChannel):
 class JuniperEXCommandSender:
 
 
-    def __init__(self, host, port, ssh_host_fingerprint, user, ssh_public_key_path, ssh_private_key_path):
+    def __init__(self, host, port, ssh_host_fingerprint, user, password):
 
         self.ssh_connection_creator = \
-             ssh.SSHConnectionCreator(host, port, [ ssh_host_fingerprint ], user, ssh_public_key_path, ssh_private_key_path)
+             ssh.SSHConnectionCreator(host, port, [ ssh_host_fingerprint ], user, password)
 
         self.ssh_connection = None # cached connection
 
@@ -278,10 +278,10 @@ class JunosEXTarget(object):
 
 class JuniperEXConnectionManager:
 
-    def __init__(self, port_map, host, port, host_fingerprint, user, ssh_public_key, ssh_private_key):
+    def __init__(self, port_map, host, port, host_fingerprint, user, password):
 
         self.port_map = port_map
-        self.command_sender = JuniperEXCommandSender(host, port, host_fingerprint, user, ssh_public_key, ssh_private_key)
+        self.command_sender = JuniperEXCommandSender(host, port, host_fingerprint, user, password)
 
 
     def getResource(self, port, label):
@@ -342,8 +342,8 @@ def JuniperEXBackend(network_name, nrm_ports, parent_requester, cfg):
     port             = cfg.get(config.JUNIPER_PORT, 22)
     host_fingerprint = cfg[config.JUNIPER_HOST_FINGERPRINT]
     user             = cfg[config.JUNIPER_USER]
-    ssh_public_key   = cfg[config.JUNIPER_SSH_PUBLIC_KEY]
-    ssh_private_key  = cfg[config.JUNIPER_SSH_PRIVATE_KEY]
+    password   = cfg[config.JUNIPER_PASSWORD]
+    
 
-    cm = JuniperEXConnectionManager(port_map, host, port, host_fingerprint, user, ssh_public_key, ssh_private_key)
+    cm = JuniperEXConnectionManager(port_map, host, port, host_fingerprint, user, password)
     return genericbackend.GenericBackend(network_name, nrm_map, cm, parent_requester, name)
