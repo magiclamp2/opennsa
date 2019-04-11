@@ -249,13 +249,13 @@ class JuniperEXCommandSender:
 
     def setupLink(self, source_nrm_port, dest_nrm_port, vlan):
 
-        commands = createConfigureCommands(source_nrm_port, dest_nrm_port, vlan)
+        commands = configureVlanCommands(source_nrm_port, dest_nrm_port, vlan)
         return self._sendCommands(commands)
 
 
     def teardownLink(self, source_nrm_port, dest_nrm_port, vlan):
 
-        commands = createDeleteCommands(source_nrm_port, dest_nrm_port, vlan)
+        commands = deleteVlanCommands(source_nrm_port, dest_nrm_port, vlan)
         return self._sendCommands(commands)
 
 
