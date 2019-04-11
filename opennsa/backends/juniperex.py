@@ -29,40 +29,93 @@ from opennsa import constants as cnt, config
 from opennsa.backends.common import genericbackend, ssh
 
 
-
 # parameterized commands
 COMMAND_CONFIGURE               = 'configure'
 COMMAND_COMMIT                  = 'commit'
+COMMAND_ROLLBACK                = 'rollback'
 
+#COMMAND_SET_VLAN                = 'set vlans opennsa-%i vlan-id %i l3-interface vlan.%i'
 COMMAND_SET_VLAN                = 'set vlans opennsa-%i vlan-id %i'
+COMMAND_SET_VLAN_L3INT          = 'set vlans opennsa-%i l3-interface vlan.%i'
+COMMAND_SET_VLAN_DOT1Q          = 'set vlans opennsa-%i dot1q-tunneling'
+COMMAND_SET_VLAN_SWAP           = 'set vlans opennsa-%i interface %s.0 mapping %i swap'
 COMMAND_SET_INTERFACE_VLAN      = 'set interfaces %s unit 0 family ethernet-switching vlan members opennsa-%i'
 
-COMMAND_DELETE_VLAN             = 'delete vlans opennsa-%i'
+#COMMAND_DELETE_VLAN             = 'delete vlans opennsa-%i'
+COMMAND_DELETE_VLAN_L3INT       = 'delete vlans opennsa-%i l3-interface'
+COMMAND_DELETE_VLAN_SWAP        = 'delete vlans opennsa-%i interface %s.0'
+COMMAND_DELETE_VLAN_DOT1Q       = 'delete vlans opennsa-%i dot1q-tunneling'
 COMMAND_DELETE_INTERFACE_VLAN   = 'delete interfaces %s unit 0 family ethernet-switching vlan members opennsa-%i'
-
 
 LOG_SYSTEM = 'JuniperEX'
 
-
-
-
-def createConfigureCommands(source_nrm_port, dest_nrm_port, vlan):
+def configureVlanCommands(source_port, dest_port, vlan):
 
     vl = COMMAND_SET_VLAN % (vlan, vlan)
-    p1 = COMMAND_SET_INTERFACE_VLAN % (source_nrm_port, vlan)
-    p2 = COMMAND_SET_INTERFACE_VLAN % (dest_nrm_port, vlan)
+    v1l3int = COMMAND_SET_VLAN_L3INT % (vlan, vlan)
+    p1 = COMMAND_SET_INTERFACE_VLAN % (source_port, vlan)
+    p2 = COMMAND_SET_INTERFACE_VLAN % (dest_port, vlan)
+    commands = [ vl, v1l3int, p1, p2 ]
 
-    commands = [ vl, p1, p2 ]
     return commands
 
+def configureVlansCommands(source_port, source_vlan, dest_port, dest_vlan):
+# configure translating vlans
+## "source_port/vlan" will always be the translated one
+## Swapped port always one less than "source_port"
 
-def createDeleteCommands(source_nrm_port, dest_nrm_port, vlan):
+# (translation, no more vlan deletion, src: X#2222, dest: Y#1111 )
+# set vlans opennsa-1111 l3-interface vlan.1111
+# set vlans opennsa-2222 dot1q-tunneling
+# set vlans opennsa-2222 interface xe-0/0/46.0 mapping 1111 swap
+# set interfaces Y unit 0 family ethernet-switching vlan members opennsa-1111
+# set interfaces xe-0/0/47 unit 0 family ethernet-switching vlan members opennsa-1111
+# set interfaces X unit 0 family ethernet-switching vlan members opennsa-2222
 
-    p1 = COMMAND_DELETE_INTERFACE_VLAN % (source_nrm_port, vlan)
-    p2 = COMMAND_DELETE_INTERFACE_VLAN % (dest_nrm_port, vlan)
-    vl = COMMAND_DELETE_VLAN % vlan
+    #trans_port = source_port[:-1] + str( int(source_port[-1]) -1 )
 
-    commands = [ p1, p2, vl ]
+    vd = COMMAND_SET_VLAN % (dest_vlan, dest_vlan)
+    vs = COMMAND_SET_VLAN % (source_vlan, source_vlan)
+    vdl3int     = COMMAND_SET_VLAN_L3INT % (dest_vlan, dest_vlan)
+    vsdot1q     = COMMAND_SET_VLAN_DOT1Q % source_vlan
+    vsswap      = COMMAND_SET_VLAN_SWAP % (source_vlan, 'xe-0/0/46', dest_vlan)
+    p1vd        = COMMAND_SET_INTERFACE_VLAN % (dest_port, dest_vlan)
+    p2vd        = COMMAND_SET_INTERFACE_VLAN % ('xe-0/0/47', dest_vlan)
+    p3vs        = COMMAND_SET_INTERFACE_VLAN % (source_port, source_vlan)
+
+    commands = [ vd, vs, vdl3int, vsdot1q, vsswap, p1vd, p2vd, p3vs ]
+    return commands
+
+def deleteVlanCommands(source_port, dest_port, vlan):
+
+    p1 = COMMAND_DELETE_INTERFACE_VLAN % (source_port, vlan)
+    p2 = COMMAND_DELETE_INTERFACE_VLAN % (dest_port, vlan)
+    vl = COMMAND_DELETE_VLAN_L3INT % vlan
+
+    commands = [ p1, p2, vl]
+    return commands
+
+def deleteVlansCommands(source_port, source_vlan, dest_port, dest_vlan):
+# delete translating vlans
+# "source_port/vlan" will always be the translated one
+
+# (new translation, no vlan deletion just configs, src: X#2222, dest: Y#1111 )
+# delete interfaces Y unit 0 family ethernet-switching vlan members opennsa-1111
+# delete interfaces xe-0/0/47 unit 0 family ethernet-switching vlan members opennsa-1111
+# delete interfaces X unit 0 family ethernet-switching vlan members opennsa-2222
+# delete vlans opennsa-2222 interface xe-0/0/46.0
+# delete vlans opennsa-2222 dot1q-tunneling
+# delete vlans opennsa-1111 l3-interface
+
+    p1vd         = COMMAND_DELETE_INTERFACE_VLAN % (dest_port, dest_vlan)
+    p2vd         = COMMAND_DELETE_INTERFACE_VLAN % ('xe-0/0/47', dest_vlan)
+    p3vs         = COMMAND_DELETE_INTERFACE_VLAN % (source_port, source_vlan)
+#    vl = COMMAND_DELETE_VLAN % dest_vlan
+    vsswap       = COMMAND_DELETE_VLAN_SWAP % (source_vlan, 'xe-0/0/46')
+    vsdot1q      = COMMAND_DELETE_VLAN_DOT1Q % source_vlan
+    vdl3int      = COMMAND_DELETE_VLAN_L3INT % dest_vlan
+
+    commands = [ p1vd, p2vd, p3vs, vsswap, vsdot1q, vdl3int ]
     return commands
 
 
