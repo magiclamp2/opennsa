@@ -33,118 +33,171 @@ from opennsa.backends.common import genericbackend, ssh
 # parameterized commands
 COMMAND_CONFIGURE               = 'configure'
 COMMAND_COMMIT                  = 'commit'
+COMMAND_ROLLBACK                = 'rollback'
 
+#COMMAND_SET_VLAN                = 'set vlans opennsa-%i vlan-id %i l3-interface vlan.%i'
 COMMAND_SET_VLAN                = 'set vlans opennsa-%i vlan-id %i'
+COMMAND_SET_VLAN_L3INT          = 'set vlans opennsa-%i l3-interface vlan.%i'
+COMMAND_SET_VLAN_DOT1Q          = 'set vlans opennsa-%i dot1q-tunneling'
+COMMAND_SET_VLAN_SWAP           = 'set vlans opennsa-%i interface %s.0 mapping %i swap'
 COMMAND_SET_INTERFACE_VLAN      = 'set interfaces %s unit 0 family ethernet-switching vlan members opennsa-%i'
 
-COMMAND_DELETE_VLAN             = 'delete vlans opennsa-%i'
+#COMMAND_DELETE_VLAN             = 'delete vlans opennsa-%i'
+COMMAND_DELETE_VLAN_L3INT       = 'delete vlans opennsa-%i l3-interface'
+COMMAND_DELETE_VLAN_SWAP        = 'delete vlans opennsa-%i interface %s.0'
+COMMAND_DELETE_VLAN_DOT1Q       = 'delete vlans opennsa-%i dot1q-tunneling'
 COMMAND_DELETE_INTERFACE_VLAN   = 'delete interfaces %s unit 0 family ethernet-switching vlan members opennsa-%i'
-
 
 LOG_SYSTEM = 'JuniperEX'
 
 
 
 
-def createConfigureCommands(source_nrm_port, dest_nrm_port, vlan):
+def configureVlanCommands(source_port, dest_port, vlan):
 
     vl = COMMAND_SET_VLAN % (vlan, vlan)
-    p1 = COMMAND_SET_INTERFACE_VLAN % (source_nrm_port, vlan)
-    p2 = COMMAND_SET_INTERFACE_VLAN % (dest_nrm_port, vlan)
+    v1l3int = COMMAND_SET_VLAN_L3INT % (vlan, vlan)
+    p1 = COMMAND_SET_INTERFACE_VLAN % (source_port, vlan)
+    p2 = COMMAND_SET_INTERFACE_VLAN % (dest_port, vlan)
+    commands = [ vl, v1l3int, p1, p2 ]
 
-    commands = [ vl, p1, p2 ]
+    return commands
+
+def configureVlansCommands(source_port, source_vlan, dest_port, dest_vlan):
+# configure translating vlans
+## "source_port/vlan" will always be the translated one
+## Swapped port always one less than "source_port"
+
+# (translation, no more vlan deletion, src: X#2222, dest: Y#1111 )
+# set vlans opennsa-1111 l3-interface vlan.1111
+# set vlans opennsa-2222 dot1q-tunneling
+# set vlans opennsa-2222 interface xe-0/0/46.0 mapping 1111 swap
+# set interfaces Y unit 0 family ethernet-switching vlan members opennsa-1111
+# set interfaces xe-0/0/47 unit 0 family ethernet-switching vlan members opennsa-1111
+# set interfaces X unit 0 family ethernet-switching vlan members opennsa-2222
+
+    #trans_port = source_port[:-1] + str( int(source_port[-1]) -1 )
+
+    vd = COMMAND_SET_VLAN % (dest_vlan, dest_vlan)
+    vs = COMMAND_SET_VLAN % (source_vlan, source_vlan)
+    vdl3int     = COMMAND_SET_VLAN_L3INT % (dest_vlan, dest_vlan)
+    vsdot1q     = COMMAND_SET_VLAN_DOT1Q % source_vlan
+    vsswap      = COMMAND_SET_VLAN_SWAP % (source_vlan, 'xe-0/0/46', dest_vlan)
+    p1vd        = COMMAND_SET_INTERFACE_VLAN % (dest_port, dest_vlan)
+    p2vd        = COMMAND_SET_INTERFACE_VLAN % ('xe-0/0/47', dest_vlan)
+    p3vs        = COMMAND_SET_INTERFACE_VLAN % (source_port, source_vlan)
+
+    commands = [ vd, vs, vdl3int, vsdot1q, vsswap, p1vd, p2vd, p3vs ]
+    return commands
+
+def deleteVlanCommands(source_port, dest_port, vlan):
+
+    p1 = COMMAND_DELETE_INTERFACE_VLAN % (source_port, vlan)
+    p2 = COMMAND_DELETE_INTERFACE_VLAN % (dest_port, vlan)
+    vl = COMMAND_DELETE_VLAN_L3INT % vlan
+
+    commands = [ p1, p2, vl]
+    return commands
+
+def deleteVlansCommands(source_port, source_vlan, dest_port, dest_vlan):
+# delete translating vlans
+# "source_port/vlan" will always be the translated one
+
+# (new translation, no vlan deletion just configs, src: X#2222, dest: Y#1111 )
+# delete interfaces Y unit 0 family ethernet-switching vlan members opennsa-1111
+# delete interfaces xe-0/0/47 unit 0 family ethernet-switching vlan members opennsa-1111
+# delete interfaces X unit 0 family ethernet-switching vlan members opennsa-2222
+# delete vlans opennsa-2222 interface xe-0/0/46.0
+# delete vlans opennsa-2222 dot1q-tunneling
+# delete vlans opennsa-1111 l3-interface
+
+    p1vd         = COMMAND_DELETE_INTERFACE_VLAN % (dest_port, dest_vlan)
+    p2vd         = COMMAND_DELETE_INTERFACE_VLAN % ('xe-0/0/47', dest_vlan)
+    p3vs         = COMMAND_DELETE_INTERFACE_VLAN % (source_port, source_vlan)
+#    vl = COMMAND_DELETE_VLAN % dest_vlan
+    vsswap       = COMMAND_DELETE_VLAN_SWAP % (source_vlan, 'xe-0/0/46')
+    vsdot1q      = COMMAND_DELETE_VLAN_DOT1Q % source_vlan
+    vdl3int      = COMMAND_DELETE_VLAN_L3INT % dest_vlan
+
+    commands = [ p1vd, p2vd, p3vs, vsswap, vsdot1q, vdl3int ]
     return commands
 
 
-def createDeleteCommands(source_nrm_port, dest_nrm_port, vlan):
 
-    p1 = COMMAND_DELETE_INTERFACE_VLAN % (source_nrm_port, vlan)
-    p2 = COMMAND_DELETE_INTERFACE_VLAN % (dest_nrm_port, vlan)
-    vl = COMMAND_DELETE_VLAN % vlan
-
-    commands = [ p1, p2, vl ]
-    return commands
-
-
-class SSHChannel(ssh.SSHChannel):
+class SSHChannel:
 
     name = 'session'
 
-    def __init__(self, conn):
-        ssh.SSHChannel.__init__(self, conn=conn)
+    def __init__(self):
 
         self.line = ''
-
         self.wait_defer = None
         self.wait_line  = None
 
+    def sendCommands(self, commands, client):
 
-    @defer.inlineCallbacks
-    def sendCommands(self, commands):
         LT = '\r' # line termination
+        channel = client.invoke_shell()
+        channel.settimeout(30)
+
+        while not self.line.endswith('> '):
+                 resp = channel.recv(9999)
+                 self.line += resp
+                 print(resp)
+        self.line = ''
 
         try:
-            yield self.conn.sendRequest(self, 'shell', '', wantReply=1)
-            d = self.waitForLine('>')
-            self.write(COMMAND_CONFIGURE + LT)
-            yield d
-
-            log.msg('Entered configure mode', debug=True, system=LOG_SYSTEM)
+            channel.send(COMMAND_CONFIGURE + LT)
+            log.msg('Entered configure mode')
 
             for cmd in commands:
                 log.msg('CMD> %s' % cmd, system=LOG_SYSTEM)
-                d = self.waitForLine('[edit]')
-                self.write(cmd + LT)
-                yield d
-
+                while not self.line.endswith('# '):
+                         resp = channel.recv(9999)
+                         self.line += resp
+#                        print(resp)
+                print(resp)
+                self.line = ''
+                channel.send(cmd + LT)
+#               while channel.recv_ready():
+#                    self.line += channel.recv(1024)
+#               log.msg(self.line)
+#               self.line=''
             # commit commands, check for 'commit complete' as success
             # not quite sure how to handle failure here
 
-            ## test stuff
-            #d = self.waitForLine('[edit]')
-            #self.write('commit check' + LT)
+#           d = self.waitForLine('commit complete')
 
-            d = self.waitForLine('commit complete')
-            self.write(COMMAND_COMMIT + LT)
-            yield d
+            channel.send(COMMAND_COMMIT + LT)
 
-        except Exception as e:
+            while not self.line.endswith('# '):
+                 resp = channel.recv(9999)
+                 self.line += resp
+            print(resp)
+
+            if 'fail' in self.line:
+                 sendEmail(self.line)
+                 channel.send(COMMAND_ROLLBACK + LT)
+                 while not self.line.endswith('# '):
+                        resp = channel.recv(9999)
+                        self.line += resp
+                 print(resp)
+                 self.line = ''
+                 channel.send(COMMAND_COMMIT + LT)
+                 while not self.line.endswith('# '):
+                        resp = channel.recv(9999)
+                        self.line += resp
+                 print(resp)
+                 raise Exception(self.line)
+
+            self.line = ''
+
+        except Exception, e:
             log.msg('Error sending commands: %s' % str(e))
             raise e
 
-        log.msg('Commands successfully committed', debug=True, system=LOG_SYSTEM)
-        self.sendEOF()
-        self.closeIt()
-
-
-    def waitForLine(self, line):
-        self.wait_line = line
-        self.wait_defer = defer.Deferred()
-        return self.wait_defer
-
-
-    def matchLine(self, line):
-        if self.wait_line and self.wait_defer:
-            if self.wait_line in line.strip():
-                d = self.wait_defer
-                self.wait_line  = None
-                self.wait_defer = None
-                d.callback(self)
-            else:
-                pass
-
-
-    def dataReceived(self, data):
-        if len(data) == 0:
-            pass
-        else:
-            self.line += data
-            if '\n' in data:
-                lines = [ line.strip() for line in self.line.split('\n') if line.strip() ]
-                self.line = ''
-                for l in lines:
-                    self.matchLine(l)
-
+        log.msg('Commands successfully committed')
+        channel.close()
 
 
 class JuniperEXCommandSender:
@@ -152,41 +205,26 @@ class JuniperEXCommandSender:
 
     def __init__(self, host, port, ssh_host_fingerprint, user, ssh_public_key_path, ssh_private_key_path):
 
-        self.ssh_connection_creator = \
-             ssh.SSHConnectionCreator(host, port, [ ssh_host_fingerprint ], user, ssh_public_key_path, ssh_private_key_path)
+        self.sshconnection = \
+             ssh.SSHConnection(host, port, user, ssh_public_key_path, ssh_private_key_path)
+             #for now - fingerprint is left unused..
 
-        self.ssh_connection = None # cached connection
+        self.sshclient = self.sshconnection.startConnection()
+        self.transport = self.sshclient.get_transport()
+        self.transport.set_keepalive(30)
+        self.channel = None
 
+    def _getSSHChannel(self):                   #this whole section is for compatibility w/ original code with deferreds
 
-    def _getSSHChannel(self):
-
-        def setSSHConnectionCache(ssh_connection):
-            log.msg('SSH Connection created and cached', system=LOG_SYSTEM)
-            self.ssh_connection = ssh_connection
-            return ssh_connection
-
-        def gotSSHConnection(ssh_connection):
-            channel = SSHChannel(conn = ssh_connection)
-            ssh_connection.openChannel(channel)
-            return channel.channel_open
-
-        if self.ssh_connection and not self.ssh_connection.transport.factory.stopped:
-            log.msg('Reusing SSH connection', debug=True, system=LOG_SYSTEM)
-            return gotSSHConnection(self.ssh_connection)
-        else:
-            # since creating a new connection should be uncommon, we log it
-            # this makes it possible to see if something fucks up and creates connections continuously
-            log.msg('Creating new SSH connection', system=LOG_SYSTEM)
-            d = self.ssh_connection_creator.getSSHConnection()
-            d.addCallback(setSSHConnectionCache)
-            d.addCallback(gotSSHConnection)
-            return d
+        connection = SSHChannel()
+        self.channel = connection
+        return defer.succeed(connection)
 
 
     def _sendCommands(self, commands):
 
         def gotChannel(channel):
-            d = channel.sendCommands(commands)
+            d = self.channel.sendCommands(commands, self.sshclient)
             return d
 
         d = self._getSSHChannel()
@@ -194,15 +232,25 @@ class JuniperEXCommandSender:
         return d
 
 
-    def setupLink(self, source_nrm_port, dest_nrm_port, vlan):
+    def setupLink(self, source_port, source_vlan, dest_port, dest_vlan):
 
-        commands = createConfigureCommands(source_nrm_port, dest_nrm_port, vlan)
+        if source_vlan == dest_vlan:
+            commands = configureVlanCommands(source_port, dest_port, dest_vlan)
+        elif source_vlan > dest_vlan:
+            commands = configureVlansCommands(source_port, source_vlan, dest_port, dest_vlan)
+        else:
+            commands = configureVlansCommands(dest_port, dest_vlan, source_port, source_vlan)
         return self._sendCommands(commands)
 
 
-    def teardownLink(self, source_nrm_port, dest_nrm_port, vlan):
+    def teardownLink(self, source_port, source_vlan, dest_port, dest_vlan):
 
-        commands = createDeleteCommands(source_nrm_port, dest_nrm_port, vlan)
+        if source_vlan == dest_vlan:
+            commands = deleteVlanCommands(source_port, dest_port, dest_vlan)
+        elif source_vlan > dest_vlan:
+            commands = deleteVlansCommands(source_port, source_vlan, dest_port, dest_vlan)
+        else:
+            commands = deleteVlansCommands(dest_port, dest_vlan, source_port, source_vlan)
         return self._sendCommands(commands)
 
 
@@ -231,18 +279,40 @@ class JuniperEXConnectionManager:
         self.command_sender = JuniperEXCommandSender(host, port, host_fingerprint, user, ssh_public_key, ssh_private_key)
 
 
+#   def getResource(self, port, label_type, label_value):
+#       assert label_type in (None, cnt.ETHERNET_VLAN), 'Label must be None or VLAN'
+#       return str(label_value) # vlan is a global resource, only one be used at a time
+
+
+#   def getTarget(self, port, label_type, label_value):
+#       assert label_type in (None, cnt.ETHERNET_VLAN), 'Label must be None or VLAN'
+#       if label_type == cnt.ETHERNET_VLAN:
+#           vlan = int(label_value)
+#           assert 1 <= vlan <= 4095, 'Invalid label value for vlan: %s' % label_value
+
+#        return JunosEXTarget(self.port_map[port], vlan)
+
+
+
     def getResource(self, port, label):
-        assert label is None or label.type_ == cnt.ETHERNET_VLAN, 'Label must be None or VLAN'
-        return label.labelValue() # vlan is a global resource, only one be used at a time
+        assert label is not None and label.type_ == cnt.ETHERNET_VLAN, 'Label must be None or VLAN'
+        return str(label.labelValue()) # vlan is a global resource, only one be used at a time
 
 
     def getTarget(self, port, label):
-        assert label is None or label.type_ == cnt.ETHERNET_VLAN, 'Label must be None or VLAN'
-        if label.type_ == cnt.ETHERNET_VLAN:
-            vlan = int(label.labelValue())
-            assert 1 <= vlan <= 4095, 'Invalid label value for vlan: %s' % label.labelValue()
+        assert label is not None and label.type_ == cnt.ETHERNET_VLAN, 'Label must be None or VLAN'
+
+#        return self.port_map[port] + '.' + label.labelValue()
+
+#       if label.type_ == cnt.ETHERNET_VLAN:
+#           log.msg('label.values = %s' % (str(label.values)), system=LOG_SYSTEM)
+        vlan = int(str(label.labelValue()))
+##           log.msg('VLAN = %i' % (vlan), system=LOG_SYSTEM)
+
+#           assert 1 <= vlan <= 4095, 'Invalid label value for vlan: %s' % label.values
 
         return JunosEXTarget(self.port_map[port], vlan)
+
 
 
     def createConnectionId(self, source_target, dest_target):
@@ -250,29 +320,36 @@ class JuniperEXConnectionManager:
 
 
     def canSwapLabel(self, label_type):
-        return False # not yet anyway
+        return label_type == cnt.ETHERNET_VLAN
+        #return False
 
 
     def setupLink(self, connection_id, source_target, dest_target, bandwidth):
 
-        assert source_target.vlan == dest_target.vlan, 'VLANs must match'
-
         def linkUp(_):
             log.msg('Link %s -> %s up' % (source_target, dest_target), system=LOG_SYSTEM)
 
-        d = self.command_sender.setupLink(source_target.port, dest_target.port, dest_target.vlan)
+        d = self.command_sender.setupLink(source_target.port, source_target.vlan, dest_target.port, dest_target.vlan)
+#       if source_target.vlan >= dest_target.vlan:
+#            d = self.command_sender.setupLink(dest_target.port, source_target.port, dest_target.vlan)
+#       else:
+#            d = self.command_sender.setupLink(source_target.port, dest_target.port, source_target.vlan)
+
         d.addCallback(linkUp)
         return d
 
 
     def teardownLink(self, connection_id, source_target, dest_target, bandwidth):
 
-        assert source_target.vlan == dest_target.vlan, 'VLANs must match'
-
         def linkDown(_):
             log.msg('Link %s -> %s down' % (source_target, dest_target), system=LOG_SYSTEM)
 
-        d = self.command_sender.teardownLink(source_target.port, dest_target.port, dest_target.vlan)
+        d = self.command_sender.teardownLink(source_target.port, source_target.vlan, dest_target.port, dest_target.vlan)
+#       if source_target.vlan >= dest_target.vlan:
+#            d = self.command_sender.teardownLink(source_target.port, dest_target.port, dest_target.vlan)
+#       else:
+#            d = self.command_sender.teardownLink(source_target.port, dest_target.port, source_target.vlan)
+
         d.addCallback(linkDown)
         return d
 
