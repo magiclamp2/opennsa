@@ -1,178 +1,105 @@
-"""
-Basic SSH connectivity.
-"""
+'''
+Created on Jun 6, 2016
 
-from twisted.python import log
-from twisted.internet import defer, protocol, reactor, endpoints
-from twisted.conch import error as concherror
-from twisted.conch.ssh import transport, keys, userauth, connection, channel
+@author: sally
+'''
 
 
-LOG_SYSTEM = 'opennsa.SSH'
+import os
+import sys
+#from twisted.internet import defer
+
+try:
+    import paramiko
+except ImportError:
+    raise ImportError('Importing paramiko SSH module or its dependencies failed.')
+    sys.exit(1)
 
 
-
-class SSHClientTransport(transport.SSHClientTransport):
-
-    def __init__(self, fingerprints):
-        self.fingerprints = fingerprints
-        self.connection_secure_d = defer.Deferred()
+# things to do
+# check fingerprint -> verify Host Key
 
 
-    def verifyHostKey(self, public_key, fingerprint):
-        if fingerprint in self.fingerprints:
-            return defer.succeed(1)
-        else:
-            return defer.fail(concherror.ConchError('Fingerprint not accepted'))
+class SSHConnection: #(host, port, fingerprint, username, public_key, private_key):
 
 
-    def connectionSecure(self):
-        self.connection_secure_d.callback(self)
+    def __init__(self, host, port, username, public_key_path=None, private_key_path=None, password = None):
 
-
-
-class SSHClientFactory(protocol.ClientFactory):
-
-    protocol = SSHClientTransport
-
-    def __init__(self, fingerprints):
-        # ClientFactory has no __init__ method
-        self.fingerprints = fingerprints # this is just a passthrough to the transport protocol
-        self.stopped = False
-
-
-    def buildProtocol(self, addr):
-        p = self.protocol(self.fingerprints)
-        p.factory = self
-        return p
-
-
-    def stopFactory(self):
-        log.msg('SSH client factory stopped (new connection must be created).', system=LOG_SYSTEM)
-        self.stopped = True
-
-
-
-class KeyUserAuthClient(userauth.SSHUserAuthClient):
-
-    def __init__(self, user, connection, public_key_path, private_key_path):
-        userauth.SSHUserAuthClient.__init__(self, user, connection)
-        self.public_key_path  = public_key_path
-        self.private_key_path = private_key_path
-
-    def getPassword(self, prompt=None):
-        return # this says we won't do password authentication
-
-    def getPublicKey(self):
-        return keys.Key.fromFile(self.public_key_path)
-
-    def getPrivateKey(self):
-        return defer.succeed( keys.Key.fromFile(self.private_key_path) )
-
-
-
-class PasswordUserAuthClient(userauth.SSHUserAuthClient):
-
-    def __init__(self, user, connection, password):
-        userauth.SSHUserAuthClient.__init__(self, user, connection)
-        self.password = password
-
-    def getPassword(self, prompt=None):
-        return defer.succeed( self.password )
-
-
-
-class SSHConnection(connection.SSHConnection):
-
-    def __init__(self):
-        connection.SSHConnection.__init__(self)
-        self.ssh_connection_established_d = defer.Deferred()
-
-    def serviceStarted(self):
-        self.ssh_connection_established_d.callback(self)
-
-
-
-class SSHChannel(channel.SSHChannel):
-
-    name = 'session'
-
-    def __init__(self, localWindow=0, localMaxPacket=0, remoteWindow=0, remoteMaxPacket=0, conn=None, data=None, avatar=None):
-        channel.SSHChannel.__init__(self, localWindow, localMaxPacket, remoteWindow, remoteMaxPacket, conn, data, avatar)
-        self.channel_open = defer.Deferred()
-
-
-    def channelOpen(self, data):
-        self.channel_open.callback(self)
-        log.msg('SSH channel open.', debug=True, system=LOG_SYSTEM)
-
-
-    def request_exit_status(self, data):
-        if data and len(data) != 4:
-            log.msg('Exit status data: %s' % data, system=LOG_SYSTEM)
-
-
-    def sendEOF(self, passthru=None):
-        self.conn.sendEOF(self) # should this be on self?
-        return passthru
-
-
-    def closeIt(self, passthru=None):
-        self.loseConnection()
-        return passthru
-
-
-    def dataReceived(self, data):
-        raise NotImplementedError('SSHChannel.dataReceived must be overwritten in sub-class')
-
-
-
-class SSHConnectionCreator:
-
-    def __init__(self, host, port, fingerprints, username, public_key_path=None, private_key_path=None, password=None):
         self.host = host
         self.port = port
-        self.fingerprints     = fingerprints
-        self.username         = username
-        self.public_key_path  = public_key_path
+        self.username = username
+        self.public_key_path = public_key_path
         self.private_key_path = private_key_path
-        self.password         = password
+        self.password = password
 
 
-    def createTCPConnection(self):
-        # set up base connection and verify host
-        def hostVerified(client, proto):
-            return proto
 
-        def gotProtocol(proto):
-            proto.connection_secure_d.addCallback(hostVerified, proto)
-            self.proto = proto
-            return proto.connection_secure_d
+    def startConnection(self):
 
-        log.msg('Creating new TCP connection for SSH connection.', debug=True, system=LOG_SYSTEM)
-        factory = SSHClientFactory(self.fingerprints)
-        point = endpoints.TCP4ClientEndpoint(reactor, self.host, self.port)
-        d = point.connect(factory)
-        d.addCallback(gotProtocol)
-        return d
+        client = paramiko.SSHClient()
+        paramiko.util.log_to_file('SSH_session.log')
+        client.load_system_host_keys()
+#       pathtotake = None
 
+#       if self.public_key_path:
+#           if os.path.exists(self.public_key_path):
+#               pathtotake = self.public_key_path
+#           elif os.path.exists(os.path.expanduser(self.public_key_path)):
+#               pathtotake = os.path.expanduser(self.public_key_path)
+#
+                    # can comment out elif if it is known that public_key_path is straightforward
+                    # and does not need to be expanded . . .
+#       else:
+#           pathtotake = os.path.expanduser('~/.ssh/known_hosts')
 
-    def getSSHConnection(self):
-        # this should really be called createSSHConnection, but previously connecting caching was done here
-        # however that is not put in the backend itself, where it fits much better
+#       client.load_host_keys(pathtotake)
+        client.set_missing_host_key_policy(paramiko.WarningPolicy())
 
-        def gotTCPConnection(proto):
-            ssh_connection = SSHConnection()
-            if self.public_key_path and self.private_key_path:
-                proto.requestService(KeyUserAuthClient(self.username, ssh_connection, self.public_key_path, self.private_key_path))
-            elif self.password:
-                proto.requestService(PasswordUserAuthClient(self.username, ssh_connection, self.password))
+#       hostkey = None
+#       hostkeytype = None
+
+        privkey=None
+
+        if self.private_key_path: #self.public_key_path
+
+            if os.path.exists(self.private_key_path):# and os.path.exists(self.public_key_path):
+
+                privkey = paramiko.RSAKey.from_private_key_file(self.private_key_path)
+#                try:
+#                    host_keys = paramiko.util.load_host_keys(self.public_key_path)
+#                    if self.host in host_keys:
+#                            hostkeytype = host_keys[self.host].keys()[0]
+#                            hostkey = host_keys[self.host][hostkeytype]
+#                except IOError:
+#                   print('Unable to open host keys file')
+#                    host_keys = {}
+
+            elif os.path.exists(os.path.expanduser(self.private_key_path)):
+
+                privkey = paramiko.RSAKey.from_private_key_file(os.path.expanduser(self.private_key_path))
+
             else:
-                raise AssertionError('No ssh keys or password supplied')
+                raise TypeError("Incorrect private key path or file does not exist")
+                sys.exit(1)
 
-            return ssh_connection.ssh_connection_established_d
 
-        d = self.createTCPConnection()
-        d.addCallback(gotTCPConnection)
-        return d
 
+        try:
+            if privkey:
+                client.connect(hostname=self.host, username=self.username,pkey=privkey)
+
+            elif self.password:
+            #go with username/pass
+                client.connect(hostname = self.host, username=self.username, password=self.password)
+            else:
+
+                raise AssertionError('No keys or password supplied')
+                sys.exit(1)
+
+        except paramiko.AuthenticationException:
+
+            print ('Connection Failed')
+            raise paramiko.AuthenticationException()
+            #exit
+
+        return client
